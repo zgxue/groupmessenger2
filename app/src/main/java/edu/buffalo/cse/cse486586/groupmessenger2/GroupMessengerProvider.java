@@ -127,6 +127,6 @@ public class GroupMessengerProvider extends ContentProvider {
 
         ///**************** end
         Log.v("query", selection);
-        return null;
+        return cursor;
     }
 }
