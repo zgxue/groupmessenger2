@@ -42,6 +42,8 @@ import java.util.LinkedList;
 import java.util.PriorityQueue;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * GroupMessengerActivity is the main Activity for the assignment.
@@ -61,6 +63,7 @@ public class GroupMessengerActivity extends Activity {
 //    static final String REMOTE_PORT4 = "11124";
 
     static final String[] REMOTE_PORTS = new String[]{"11108","11112","11116","11120","11124"};
+//    static final String[] REMOTE_PORTS = new String[]{"11108"};
 //    static final String[] REMOTE_PORTS = new String[]{"11108","11112"};
 
 
@@ -93,8 +96,10 @@ public class GroupMessengerActivity extends Activity {
     private LinkedList<Integer[]> fifoQueue = new LinkedList<Integer[]>();
     private LinkedList<TOQueueItem> totalQueue = new LinkedList<TOQueueItem>();
 
-    private Integer counter = 0;
-    private Integer siProposedSeq  = 0;
+//    private Integer counter = 0;
+//    private Integer siProposedSeq  = 0;
+    private static AtomicInteger counter = new AtomicInteger(0);
+    private static AtomicInteger siProposedSeq  = new AtomicInteger(0);
 
 
 
@@ -193,6 +198,7 @@ public class GroupMessengerActivity extends Activity {
     /// begin xue **************************//
     public class ServerTask extends AsyncTask<ServerSocket, String, Void> {
 
+        int sequenceInDB = 0;
         HashMap<String, Socket> machineSockets = new HashMap<String, Socket>();
 
         @Override
@@ -206,30 +212,11 @@ public class GroupMessengerActivity extends Activity {
 
                 while(true) {
                     Socket socket_sv = serverSocket.accept();
-                    String[] cntnt;
-                    String socketRemotePort;
 
-//                    BufferedReader bfr = new BufferedReader(new InputStreamReader(socket_sv.getInputStream()));
-//                    String tmp = bfr.readLine();
-
-                    Scanner scanner = new Scanner(socket_sv.getInputStream());
-                    String tmp;
-                    while(!scanner.hasNext()){;}
-                    tmp = scanner.nextLine();
-                    cntnt = tmp.split(" ", 3);
-                    socketRemotePort = cntnt[1];
-                    machineSockets.put(socketRemotePort, socket_sv);
-
-                    BDeliver1(cntnt[0], cntnt[1], cntnt[2]);
-
-                    while(!scanner.hasNext()){;}
-                    tmp = scanner.nextLine();
-                    cntnt = tmp.split(" ");
-                    BDeliver2(cntnt[0], cntnt[1], cntnt[2], cntnt[3]);
+                    Thread t0 = new Thread(new AsServer(socket_sv));
+                    t0.start();
 
 
-                    machineSockets.remove(socketRemotePort);
-                    socket_sv.close();
                 }
             } catch (SocketTimeoutException e){
                 Log.e(TAG, "There is a SocketTimeOutException!"+e.getMessage());
@@ -240,6 +227,45 @@ public class GroupMessengerActivity extends Activity {
             return null;
         }
 
+        class AsServer implements Runnable{
+            private Socket socket_accepted;
+            AsServer(Socket sckt){
+                this.socket_accepted = sckt;
+            }
+
+            public void run() {
+                try {
+                    String[] cntnt;
+                    String socketRemotePort;
+
+                    Scanner scanner = new Scanner(socket_accepted.getInputStream());
+                    String tmp;
+                    while(!scanner.hasNext()){;}
+                    tmp = scanner.nextLine();
+                    cntnt = tmp.split(" ", 3);
+                    socketRemotePort = cntnt[1];
+                    machineSockets.put(socketRemotePort, socket_accepted);
+
+                    BDeliver1(cntnt[0], cntnt[1], cntnt[2]);
+
+                    while(!scanner.hasNext()){;}
+                    tmp = scanner.nextLine();
+                    cntnt = tmp.split(" ");
+                    BDeliver2(cntnt[0], cntnt[1], cntnt[2], cntnt[3]);
+
+
+                    machineSockets.remove(socketRemotePort);
+                    socket_accepted.close();
+
+                } catch (SocketTimeoutException e){
+                    Log.e(TAG, "There is a SocketTimeOutException!"+e.getMessage());
+
+                } catch (Exception e) {
+                    Log.e(TAG, "error bufferedReader"+e.getMessage());
+                }
+            }
+        }
+
         @Override
         protected void onProgressUpdate(String...strings) {
 
@@ -247,13 +273,16 @@ public class GroupMessengerActivity extends Activity {
             tv.append(strings[1] + "\n");
 
             ContentValues contentValues = new ContentValues();
-            contentValues.put(KEY_FIELD, strings[0]);
+            contentValues.put(KEY_FIELD, String.valueOf(sequenceInDB));
             contentValues.put(VALUE_FIELD, strings[1]);
             contentResolver.insert(uri,contentValues);
+            sequenceInDB += 1;
         }
 
-        private void BDeliver1(String mid, String jProc, String msg){
-            siProposedSeq += 1;
+        private synchronized void BDeliver1(String mid, String jProc, String msg){
+//            siProposedSeq += 1;
+            siProposedSeq.incrementAndGet();
+
             String toSendStr = mid + " " + siProposedSeq.toString();
             Socket toSendSocket = machineSockets.get(jProc);
 
@@ -269,10 +298,14 @@ public class GroupMessengerActivity extends Activity {
             organizeTotalQueue();
         }
 
-        private void BDeliver2(String mid, String iProc, String sk, String kProc){
+        private synchronized void BDeliver2(String mid, String iProc, String sk, String kProc){
             try{
                 Integer skInteger = Integer.parseInt(sk);
-                siProposedSeq = (siProposedSeq > skInteger)? siProposedSeq : skInteger;
+//                siProposedSeq = (siProposedSeq > skInteger)? siProposedSeq : skInteger;
+
+                if (skInteger > siProposedSeq.get()){
+                    siProposedSeq.set(skInteger);
+                }
 
                 for (TOQueueItem item:totalQueue){
                     if (item.mID.equals(mid) && item.jProcSentMsg.equals(iProc)){
@@ -315,10 +348,10 @@ public class GroupMessengerActivity extends Activity {
         @Override
         protected Void doInBackground(String... msgs) {
 
-            counter += 1;
-            socketsSV = BMulticastMSG(counter.toString(), selfMachineName, msgs[0]);
-            logPrint("ClientTask doInbackgroud : the size of socketSV: "+ String.valueOf(socketsSV.length));
+//            counter += 1;
+            counter.incrementAndGet();
 
+            socketsSV = BMulticastMSG(counter.toString(), selfMachineName, msgs[0]);
 
             //recieve information regarding all 5or4 proposed sequences
             for (int i = 0; i < socketsSV.length; i++) {
@@ -406,7 +439,6 @@ public class GroupMessengerActivity extends Activity {
 
             String strToSend = mid + " " + proci + " " + sk + " " + prock;
 
-            logPrint("the size of socketSV: "+ String.valueOf(socketsSV.length));
             for (Socket socket_each:socketsSV){
                 OutputStream outputStream;
                 try{
