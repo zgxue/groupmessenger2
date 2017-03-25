@@ -403,12 +403,13 @@ public class GroupMessengerActivity extends Activity {
                             //change undeliverable to deliverable
                             item.status = true;
 
-                            totalQueue.set(i, item);
+//                            totalQueue.set(i, item);
+//                            organizeTotalQueue();
+                            setTotalQueue(i, item);
                             break;
                         }
                     }
 
-                    organizeTotalQueue();
                 }catch (Exception e){
                     Log.e(TAG, e.getMessage());
                 }
@@ -436,6 +437,11 @@ public class GroupMessengerActivity extends Activity {
                 publishProgress(totalQueue.peekFirst().sProposedSeq, totalQueue.peekFirst().msg);
                 totalQueue.removeFirst();
             }
+        }
+
+        private synchronized void setTotalQueue(int i, TOQueueItem item){
+            totalQueue.set(i, item);
+            organizeTotalQueue();
         }
 
         public synchronized void cleanUp(String machineCrashed){
