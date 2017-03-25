@@ -411,7 +411,9 @@ public class GroupMessengerActivity extends Activity {
                     }
 
                 }catch (Exception e){
-                    Log.e(TAG, e.getMessage());
+                    Log.e(TAG,"We got an exception in BDeliveer2!!");
+                    return;
+//                    Log.e(TAG, e.getMessage());
                 }
             }
 
@@ -486,7 +488,7 @@ public class GroupMessengerActivity extends Activity {
                     socket_each.setSoTimeout(TIMEOUT);
 
                     Scanner scanner = new Scanner(socket_each.getInputStream());
-                    logPrint("Start to process of socket "+i+".... Waiting scanner.hasNext....");
+                    logPrint("Start to process of socket.... Waiting scanner.hasNext....");
 
                     long startTime = System.currentTimeMillis();
                     while ((System.currentTimeMillis() - startTime) < TIMEOUT){
@@ -521,7 +523,7 @@ public class GroupMessengerActivity extends Activity {
 
 
                 } catch (SocketTimeoutException e){
-                    logPrint("Catch SocketTimeoutException loop["+i+"]");
+                    logPrint("Catch SocketTimeoutException loop");
                     Log.e(TAG, e.getMessage());
                     setFalseStatustoMachinebyIndex(i);
                     try{ // close the socket that waiting too long.
@@ -677,7 +679,14 @@ public class GroupMessengerActivity extends Activity {
         public int compare(TOQueueItem lhs, TOQueueItem rhs) {
             int flag = Integer.parseInt(lhs.sProposedSeq) - (Integer.parseInt(rhs.sProposedSeq));
             if (flag == 0){
-                return lhs.kProcProposing.compareTo(rhs.kProcProposing);
+                /**************/ //added recently
+                int flag2 = lhs.status.compareTo(rhs.status);
+                if (flag2 == 0){
+                    return lhs.kProcProposing.compareTo(rhs.kProcProposing);
+                }
+                return flag2;
+                /*************/
+//                return lhs.kProcProposing.compareTo(rhs.kProcProposing);
             }
             return flag;
         }
