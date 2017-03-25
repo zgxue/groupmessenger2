@@ -50,6 +50,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.lang.Thread.sleep;
+
 /**
  * GroupMessengerActivity is the main Activity for the assignment.
  * 
@@ -243,13 +245,34 @@ public class GroupMessengerActivity extends Activity {
                 String[] cntnt;
                 Scanner scanner;
                 try{
-                    socket_accepted.setSoTimeout(TIMEOUT);
+//                    socket_accepted.setSoTimeout(TIMEOUT);
                     scanner = new Scanner(socket_accepted.getInputStream());
                     String tmp;
-                    while(!scanner.hasNext()){;}
-                    tmp = scanner.nextLine();
-                    cntnt = tmp.split(" ", 3);
-                    socket_accepted.setSoTimeout(0);
+                    long startTime = System.currentTimeMillis();
+                    while ((System.currentTimeMillis() - startTime) < TIMEOUT){
+                        if (scanner.hasNext())
+                            break;
+
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e3) {
+                            e3.printStackTrace();
+                        }
+                    }
+                    if (scanner.hasNext()) {
+                        tmp = scanner.nextLine();
+                        cntnt = tmp.split(" ", 3);
+                    }else{
+                        try{
+                            socket_accepted.close();
+                        }catch(IOException e2){
+                            Log.e(TAG, e2.getMessage());
+                        }
+                        return;
+                    }
+
+//                    socket_accepted.setSoTimeout(0);
+
                 }catch (SocketTimeoutException e){
                     try{
                         socket_accepted.close();
@@ -419,6 +442,7 @@ public class GroupMessengerActivity extends Activity {
             //recieve information regarding all 5or4 proposed sequences
             for (int i = 0; i < socketsSV.length; i++) {
                 if (!getMachineStatusByIndex(i) || socketsSV[i] == null){
+                    logPrint("Jump because of the socket==null");
                     continue;
                 }
                 Socket socket_each = socketsSV[i];
@@ -428,14 +452,42 @@ public class GroupMessengerActivity extends Activity {
                     socket_each.setSoTimeout(TIMEOUT);
 
                     Scanner scanner = new Scanner(socket_each.getInputStream());
-                    while (!scanner.hasNext()){;}
-                    String[] cntnt = scanner.nextLine().split(" ");
+                    logPrint("Start to process of socket "+i+".... Waiting scanner.hasNext....");
 
-                    pairProposedSeqList.add(new Pair<String, String>(cntnt[1], REMOTE_PORTS[i]));
+                    long startTime = System.currentTimeMillis();
+                    while ((System.currentTimeMillis() - startTime) < TIMEOUT){
+                        if (scanner.hasNext())
+                            break;
+
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e3) {
+                            e3.printStackTrace();
+                        }
+                    }
+                    if (scanner.hasNext()){
+                        logPrint("Scanner got something");
+                        String[] cntnt = scanner.nextLine().split(" ");
+
+                        pairProposedSeqList.add(new Pair<String, String>(cntnt[1], REMOTE_PORTS[i]));
+                    }else{
+                        logPrint("Scanner Timeout!");
+                        setFalseStatustoMachinebyIndex(i);
+                        try{ // close the socket that waiting too long.
+                            if (socketsSV[i] != null){
+                                socketsSV[i].close();
+                            }
+                        }catch (IOException e2){
+                            Log.e(TAG, e2.getMessage());
+                        }
+                        socketsSV[i] = null;
+                    }
 
                     socket_each.setSoTimeout(0);
 
+
                 } catch (SocketTimeoutException e){
+                    logPrint("Catch SocketTimeoutException loop["+i+"]");
                     Log.e(TAG, e.getMessage());
                     setFalseStatustoMachinebyIndex(i);
                     try{ // close the socket that waiting too long.
@@ -473,12 +525,11 @@ public class GroupMessengerActivity extends Activity {
 
             // close all sockets
             for (int i = 0; i < socketsSV.length; i++) {
-//                if (!getMachineStatusByIndex(i)){
-//                    continue;
-//                }
-                Socket socket_each = socketsSV[i];
+                if (socketsSV[i] == null){
+                    continue;
+                }
                 try {
-                    socket_each.close();
+                    socketsSV[i].close();
                 } catch (IOException e) {
                     Log.e(TAG, e.getMessage());
                 }
