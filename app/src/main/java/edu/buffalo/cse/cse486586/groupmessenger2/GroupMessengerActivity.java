@@ -44,7 +44,10 @@ import java.util.ListIterator;
 import java.util.PriorityQueue;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -65,6 +68,7 @@ public class GroupMessengerActivity extends Activity {
 
 
     static final int SERVER_PORT = 10000;
+    static final int TIMEOUT = 1000 * 2;
 
     private static final String KEY_FIELD = "key";
     private static final String VALUE_FIELD = "value";
@@ -84,7 +88,15 @@ public class GroupMessengerActivity extends Activity {
 //    private HashMap<String, Socket> groupSockets;
 
     private String selfMachineName;  //these two can combine to generate the UniqueId of msg, such as 5554_2.
-    private HashMap<String, Boolean> machineStatus = new HashMap<String, Boolean>(); //initial with all 1, and 0 if one machine is down.
+//    private HashMap<String, Boolean> machineStatus = new HashMap<String, Boolean>(); //initial with all 1, and 0 if one machine is down.
+    private static AtomicBoolean[] machineStatus = new AtomicBoolean[]{
+        new AtomicBoolean(true),
+        new AtomicBoolean(true),
+        new AtomicBoolean(true),
+        new AtomicBoolean(true),
+        new AtomicBoolean(true)
+    };
+
     private HashMap<String, Integer> fifoSequences = new HashMap<String, Integer>();// <#p1, #p2, #p3, #p4, #p5>
     private Integer maxAgreedSeq = 0;  //maximum observed agreed sequence
     private Integer maxProposedSeq = 0; //maximum proposed sequence by myself
@@ -96,7 +108,6 @@ public class GroupMessengerActivity extends Activity {
 //    private Integer siProposedSeq  = 0;
     private static AtomicInteger counter = new AtomicInteger(0);
     private static AtomicInteger siProposedSeq  = new AtomicInteger(0);
-
 
 
 
@@ -126,12 +137,6 @@ public class GroupMessengerActivity extends Activity {
 
         //initialization
         selfMachineName = myPort;
-        for (String machine:REMOTE_PORTS){
-            machineStatus.put(machine, true);
-            fifoSequences.put(machine, 0);
-        }
-
-
 
 
 
@@ -195,7 +200,8 @@ public class GroupMessengerActivity extends Activity {
     public class ServerTask extends AsyncTask<ServerSocket, String, Void> {
 
         int sequenceInDB = 0;
-        HashMap<String, Socket> machineSockets = new HashMap<String, Socket>();
+//        HashMap<String, Socket> machineSockets = new HashMap<String, Socket>();
+//        Socket[] machineSockets = {null, null, null, null, null};
 
         @Override
         protected Void doInBackground(ServerSocket... sockets) {
@@ -204,13 +210,18 @@ public class GroupMessengerActivity extends Activity {
 
             try {
                 //test for timeoutException
-//                serverSocket.setSoTimeout(10000);
+                // use concurrent threadpool to avoid too many thread created in the same time
+
+                ExecutorService cachedThreadPool = Executors.newCachedThreadPool();
+//                ExecutorService fixedThreadPool = Executors.newFixedThreadPool(30);
 
                 while(true) {
                     Socket socket_sv = serverSocket.accept();
 
-                    Thread t0 = new Thread(new AsServer(socket_sv));
-                    t0.start();
+//                    fixedThreadPool.execute(new AsServer(socket_sv));
+                    cachedThreadPool.execute(new AsServer(socket_sv));
+//                    Thread t0 = new Thread(new AsServer(socket_sv));
+//                    t0.start();
 
                 }
             } catch (Exception e) {
@@ -229,48 +240,129 @@ public class GroupMessengerActivity extends Activity {
             }
 
             public void run() {
-                try {
-                    String[] cntnt;
-                    socket_accepted.setSoTimeout(500);
-
-                    Scanner scanner = new Scanner(socket_accepted.getInputStream());
+                String[] cntnt;
+                Scanner scanner;
+                try{
+                    socket_accepted.setSoTimeout(TIMEOUT);
+                    scanner = new Scanner(socket_accepted.getInputStream());
                     String tmp;
                     while(!scanner.hasNext()){;}
                     tmp = scanner.nextLine();
                     cntnt = tmp.split(" ", 3);
-                    socketRemotePort = cntnt[1];
-                    machineSockets.put(socketRemotePort, socket_accepted);
-
-                    Boolean d1Bool = BDeliver1(cntnt[0], cntnt[1], cntnt[2]);
-
-                    if (d1Bool){
-                        while(!scanner.hasNext()){;}
-                        tmp = scanner.nextLine();
-                        cntnt = tmp.split(" ");
-                        BDeliver2(cntnt[0], cntnt[1], cntnt[2], cntnt[3]);
+                    socket_accepted.setSoTimeout(0);
+                }catch (SocketTimeoutException e){
+                    try{
+                        socket_accepted.close();
+                    }catch(IOException e2){
+                        Log.e(TAG, e2.getMessage());
                     }
+                    return;
+                } catch (Exception e){
+                    Log.e(TAG, e.getMessage());
+                    return;
+                }
 
-                    machineSockets.remove(socketRemotePort);
-                    socket_accepted.close();
+
+                socketRemotePort = cntnt[1];
+//                    machineSockets.put(socketRemotePort, socket_accepted);
+//                    machineSockets[getIndexbyStrPort(socketRemotePort)] = socket_accepted;
+                Boolean d1Bool = BDeliver1(cntnt[0], cntnt[1], cntnt[2]);
+                if (!d1Bool)
+                    return;
+
+                try {
+                    socket_accepted.setSoTimeout(TIMEOUT*2);
+                    scanner = new Scanner(socket_accepted.getInputStream());
+                    while(!scanner.hasNext()){;}
+                    String tmp = scanner.nextLine();
+                    cntnt = tmp.split(" ");
+                    socket_accepted.setSoTimeout(0);
 
                 } catch (SocketTimeoutException e){
                     Log.e(TAG, "There is a SocketTimeOutException!"+e.getMessage());
-                    if (!socketRemotePort.isEmpty()){
-                        setFalseStatustoMachinebyName(socketRemotePort);
-                        cleanUp(socketRemotePort);
+
+                    setFalseStatustoMachinebyName(socketRemotePort);
+                    cleanUp(socketRemotePort);
+
+                    try{
+                        socket_accepted.close();
+                    }catch(IOException ee){
+                        Log.e(TAG, ee.getMessage());
                     }
-                    if (socket_accepted != null){
-                        try{
-                            socket_accepted.close();
-                        }catch(IOException ee){
-                            Log.e(TAG, ee.getMessage());
+                } catch (Exception e){
+                    Log.e(TAG, e.getMessage());
+                }
+
+                BDeliver2(cntnt[0], cntnt[1], cntnt[2], cntnt[3]);
+//                    machineSockets.remove(socketRemotePort);
+
+                try{
+                    socket_accepted.close();
+                }catch(IOException ee){
+                    Log.e(TAG, ee.getMessage());
+                }
+
+
+            }
+            private boolean BDeliver1(String mid, String jProc, String msg){
+//            siProposedSeq += 1;
+                siProposedSeq.incrementAndGet();
+
+                String toSendStr = mid + " " + siProposedSeq.toString();
+
+//            Socket toSendSocket = machineSockets[getIndexbyStrPort(jProc)];
+                try{
+                    OutputStream outputStream = socket_accepted.getOutputStream();
+                    outputStream.write(toSendStr.getBytes());
+                    outputStream.flush();
+                    totalQueue.add(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+                    organizeTotalQueue();
+                    return true;
+                } catch (IOException e){
+                    Log.e(TAG, e.getMessage());
+                    setFalseStatustoMachinebyName(jProc);
+                    try{
+                        socket_accepted.close();
+                    }catch (IOException e2){
+                        Log.e(TAG, e2.getMessage());
+                    }
+                    return false;
+                }
+            }
+
+            private void BDeliver2(String mid, String iProc, String sk, String kProc){
+
+
+                try{
+                    Integer skInteger = Integer.parseInt(sk);
+//                siProposedSeq = (siProposedSeq > skInteger)? siProposedSeq : skInteger;
+
+                    if (skInteger > siProposedSeq.get()){
+                        siProposedSeq.set(skInteger);
+                    }
+                    for (int i = 0; i < totalQueue.size(); i++) {
+                        TOQueueItem item = totalQueue.get(i);
+                        if (item.mID.equals(mid) && item.jProcSentMsg.equals(iProc)) {
+                            //change the proposed sequence number to sk
+                            item.sProposedSeq = sk;
+
+                            //change process that suggested sequence number to k
+                            item.kProcProposing = kProc;
+
+                            //change undeliverable to deliverable
+                            item.status = true;
+
+                            totalQueue.set(i, item);
+                            break;
                         }
                     }
 
-                } catch (IOException e){
+                    organizeTotalQueue();
+                }catch (Exception e){
                     Log.e(TAG, e.getMessage());
                 }
             }
+
         }
 
         @Override
@@ -286,60 +378,8 @@ public class GroupMessengerActivity extends Activity {
             sequenceInDB += 1;
         }
 
-        private boolean BDeliver1(String mid, String jProc, String msg){
-//            siProposedSeq += 1;
-            siProposedSeq.incrementAndGet();
 
-            String toSendStr = mid + " " + siProposedSeq.toString();
-
-            if (getMachineStatusByName(jProc)){
-                Socket toSendSocket = machineSockets.get(jProc);
-                try{
-                    OutputStream outputStream = toSendSocket.getOutputStream();
-                    outputStream.write(toSendStr.getBytes());
-                    totalQueue.add(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
-                    organizeTotalQueue();
-                    return true;
-                } catch (IOException e){
-                    Log.e(TAG, e.getMessage());
-                    setFalseStatustoMachinebyName(jProc);
-                    return false;
-                }
-            }
-            return false;
-
-        }
-
-        private void BDeliver2(String mid, String iProc, String sk, String kProc){
-            try{
-                Integer skInteger = Integer.parseInt(sk);
-//                siProposedSeq = (siProposedSeq > skInteger)? siProposedSeq : skInteger;
-
-                if (skInteger > siProposedSeq.get()){
-                    siProposedSeq.set(skInteger);
-                }
-
-                for (TOQueueItem item:totalQueue){
-                    if (item.mID.equals(mid) && item.jProcSentMsg.equals(iProc)){
-                        //change the proposed sequence number to sk
-                        item.sProposedSeq = sk;
-
-                        //change process that suggested sequence number to k
-                        item.kProcProposing = kProc;
-
-                        //change undeliverable to deliverable
-                        item.status = true;
-
-                        break;
-                    }
-                }
-                organizeTotalQueue();
-            }catch (Exception e){
-                Log.e(TAG, e.getMessage());
-            }
-        }
-
-        private void organizeTotalQueue(){
+        private synchronized void organizeTotalQueue(){  // previously there is not synchronized.
             Collections.sort(totalQueue, new ComparatorTOQueueItem());
             while (!totalQueue.isEmpty() && totalQueue.peekFirst().status){
                 publishProgress(totalQueue.peekFirst().sProposedSeq, totalQueue.peekFirst().msg);
@@ -378,22 +418,34 @@ public class GroupMessengerActivity extends Activity {
 
             //recieve information regarding all 5or4 proposed sequences
             for (int i = 0; i < socketsSV.length; i++) {
-                if (!getMachineStatusByIndex(i)){
+                if (!getMachineStatusByIndex(i) || socketsSV[i] == null){
                     continue;
                 }
                 Socket socket_each = socketsSV[i];
 
                 try {
-                    socket_each.setSoTimeout(500);
+
+                    socket_each.setSoTimeout(TIMEOUT);
+
                     Scanner scanner = new Scanner(socket_each.getInputStream());
                     while (!scanner.hasNext()){;}
                     String[] cntnt = scanner.nextLine().split(" ");
 
                     pairProposedSeqList.add(new Pair<String, String>(cntnt[1], REMOTE_PORTS[i]));
 
+                    socket_each.setSoTimeout(0);
+
                 } catch (SocketTimeoutException e){
                     Log.e(TAG, e.getMessage());
                     setFalseStatustoMachinebyIndex(i);
+                    try{ // close the socket that waiting too long.
+                        if (socketsSV[i] != null){
+                            socketsSV[i].close();
+                        }
+                    }catch (IOException e2){
+                        Log.e(TAG, e2.getMessage());
+                    }
+                    socketsSV[i] = null;
 
                 } catch (IOException e) {
                     Log.e(TAG, e.getMessage());
@@ -421,9 +473,9 @@ public class GroupMessengerActivity extends Activity {
 
             // close all sockets
             for (int i = 0; i < socketsSV.length; i++) {
-                if (!getMachineStatusByIndex(i)){
-                    continue;
-                }
+//                if (!getMachineStatusByIndex(i)){
+//                    continue;
+//                }
                 Socket socket_each = socketsSV[i];
                 try {
                     socket_each.close();
@@ -436,7 +488,7 @@ public class GroupMessengerActivity extends Activity {
         }
 
         private Socket[] BMulticastMSG(String cnteri, String proci, String content){
-            Socket[] retSockets = new Socket[REMOTE_PORTS.length];
+            Socket[] retSockets = {null, null, null, null, null};
             String strToSend = cnteri + " " + proci + " " + content;
 
             for (int i = 0; i < REMOTE_PORTS.length; i++) {
@@ -451,14 +503,16 @@ public class GroupMessengerActivity extends Activity {
 
                     retSockets[i] = socket0;
 
-//                socket0.setSoTimeout(500);
+//                    socket0.setSoTimeout(TIMEOUT);
+
                     // send messages
                     OutputStream outputStream;
                     outputStream = socket0.getOutputStream();
                     outputStream.write((strToSend).getBytes());
+                    outputStream.flush();
 
                 }catch (SocketException e){
-                    Log.e(TAG, "Client: Cannot connect to remote macheine"+e.getMessage());
+                    Log.e(TAG, "Client: Cannot newly connect to remote macheine"+e.getMessage());
                     setFalseStatustoMachinebyIndex(i);
                 } catch (IOException e) {
                     Log.e(TAG, "ClientTask socket IOException"+e.getMessage());
@@ -473,17 +527,25 @@ public class GroupMessengerActivity extends Activity {
             String strToSend = mid + " " + proci + " " + sk + " " + prock;
 
             for (int i = 0; i < socketsSV.length; i++) {
-                if (!getMachineStatusByIndex(i)){
+                if (!getMachineStatusByIndex(i) || socketsSV[i] == null){
                     continue;
                 }
-                Socket socket_each = socketsSV[i];
                 OutputStream outputStream;
                 try {
-                    outputStream = socket_each.getOutputStream();
+                    outputStream = socketsSV[i].getOutputStream();
                     outputStream.write(strToSend.getBytes());
+                    outputStream.flush();
                 } catch (IOException e) {
-                    Log.e(TAG, e.getMessage());
-                    setFalseStatustoMachinebyIndex(i);
+                    Log.e(TAG, "BMulticastAgreedSeq send error"+e.getMessage());
+//                    setFalseStatustoMachinebyIndex(i);
+                }finally {
+                    try{
+                        if(socketsSV[i] != null){
+                            socketsSV[i].close();
+                        }
+                    }catch(IOException e2){
+                        Log.e(TAG, e2.getMessage());
+                    }
                 }
             }
         }
@@ -540,7 +602,7 @@ public class GroupMessengerActivity extends Activity {
         Log.e(TAG, information);
     }
 
-    public synchronized boolean getMachineStatusByIndex(int index){
+/*    public synchronized boolean getMachineStatusByIndex(int index){
         return machineStatus.get(REMOTE_PORTS[index]);
     }
     public synchronized boolean getMachineStatusByName(String name){
@@ -553,6 +615,21 @@ public class GroupMessengerActivity extends Activity {
     public synchronized void setFalseStatustoMachinebyName(String name){
         machineStatus.remove(name);
         machineStatus.put(name, false);
+    }*/
+    public boolean getMachineStatusByIndex(int index){
+        return machineStatus[index].get();
+    }
+    public boolean getMachineStatusByName(String name){
+        return machineStatus[(Integer.parseInt(name) - 11108)/4].get();
+    }
+    public void setFalseStatustoMachinebyIndex(int index){
+        machineStatus[index].set(false);
+    }
+    public void setFalseStatustoMachinebyName(String name){
+        machineStatus[(Integer.parseInt(name) - 11108)/4].set(false);
+    }
+    public int getIndexbyStrPort(String name){
+        return (Integer.parseInt(name) - 11108)/4;
     }
 
 
