@@ -70,7 +70,7 @@ public class GroupMessengerActivity extends Activity {
 
 
     static final int SERVER_PORT = 10000;
-    static final int TIMEOUT = 1000 * 2;
+    static final int TIMEOUT = 1400;
 
     private static final String KEY_FIELD = "key";
     private static final String VALUE_FIELD = "value";
@@ -284,7 +284,7 @@ public class GroupMessengerActivity extends Activity {
                     Log.e(TAG, e.getMessage());
                     return;
                 }
-
+                logPrint("[Svr] Just got first MSG");
 
                 socketRemotePort = cntnt[1];
 //                    machineSockets.put(socketRemotePort, socket_accepted);
@@ -294,12 +294,36 @@ public class GroupMessengerActivity extends Activity {
                     return;
 
                 try {
-                    socket_accepted.setSoTimeout(TIMEOUT*2);
+//                    socket_accepted.setSoTimeout(TIMEOUT);
                     scanner = new Scanner(socket_accepted.getInputStream());
-                    while(!scanner.hasNext()){;}
-                    String tmp = scanner.nextLine();
-                    cntnt = tmp.split(" ");
-                    socket_accepted.setSoTimeout(0);
+                    String tmp;
+                    long startTime = System.currentTimeMillis();
+                    while ((System.currentTimeMillis() - startTime) < TIMEOUT){
+                        if (scanner.hasNext())
+                            break;
+
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException e3) {
+                            e3.printStackTrace();
+                        }
+                    }
+                    if (scanner.hasNext()){
+                        tmp = scanner.nextLine();
+                        cntnt = tmp.split(" ");
+//                    socket_accepted.setSoTimeout(0);
+                    } else{
+                        logPrint("Timeout!!!!!!!!!!!");
+                        setFalseStatustoMachinebyName(socketRemotePort);
+                        cleanUp(socketRemotePort);
+
+                        try{
+                            socket_accepted.close();
+                        }catch(IOException ee){
+                            Log.e(TAG, ee.getMessage());
+                        }
+                        return;
+                    }
 
                 } catch (SocketTimeoutException e){
                     Log.e(TAG, "There is a SocketTimeOutException!"+e.getMessage());
@@ -312,9 +336,13 @@ public class GroupMessengerActivity extends Activity {
                     }catch(IOException ee){
                         Log.e(TAG, ee.getMessage());
                     }
+                    return;
                 } catch (Exception e){
                     Log.e(TAG, e.getMessage());
+                    return;
                 }
+
+                logPrint("[Srv] Just got the agreed Seq.");
 
                 BDeliver2(cntnt[0], cntnt[1], cntnt[2], cntnt[3]);
 //                    machineSockets.remove(socketRemotePort);
