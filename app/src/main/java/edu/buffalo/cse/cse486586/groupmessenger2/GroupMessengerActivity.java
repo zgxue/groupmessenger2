@@ -70,7 +70,7 @@ public class GroupMessengerActivity extends Activity {
 
 
     static final int SERVER_PORT = 10000;
-    static final int TIMEOUT = 1400;
+    static final int TIMEOUT = 1600;
 
     private static final String KEY_FIELD = "key";
     private static final String VALUE_FIELD = "value";
@@ -366,7 +366,9 @@ public class GroupMessengerActivity extends Activity {
                     OutputStream outputStream = socket_accepted.getOutputStream();
                     outputStream.write(toSendStr.getBytes());
                     outputStream.flush();
-                    totalQueue.add(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+//                    totalQueue.add(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+                    addToTotalQueue(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+
                     organizeTotalQueue();
                     return true;
                 } catch (IOException e){
@@ -445,6 +447,9 @@ public class GroupMessengerActivity extends Activity {
             totalQueue.set(i, item);
             organizeTotalQueue();
         }
+        private synchronized void addToTotalQueue(TOQueueItem item){
+            totalQueue.add(item);
+        }
 
         public synchronized void cleanUp(String machineCrashed){
             ListIterator<TOQueueItem> it = totalQueue.listIterator();
@@ -454,6 +459,7 @@ public class GroupMessengerActivity extends Activity {
                     it.remove();
                 }
             }
+            organizeTotalQueue();
         }
     }
 
@@ -495,11 +501,11 @@ public class GroupMessengerActivity extends Activity {
                         if (scanner.hasNext())
                             break;
 
-                        try {
-                            Thread.sleep(10);
-                        } catch (InterruptedException e3) {
-                            e3.printStackTrace();
-                        }
+//                        try {
+//                            Thread.sleep(10);
+//                        } catch (InterruptedException e3) {
+//                            e3.printStackTrace();
+//                        }
                     }
                     if (scanner.hasNext()){
                         logPrint("Scanner got something");
@@ -507,7 +513,7 @@ public class GroupMessengerActivity extends Activity {
 
                         pairProposedSeqList.add(new Pair<String, String>(cntnt[1], REMOTE_PORTS[i]));
                     }else{
-                        logPrint("Scanner Timeout!");
+                        logPrint("Scanner Timeout!ClientDoInbackground");
                         setFalseStatustoMachinebyIndex(i);
                         try{ // close the socket that waiting too long.
                             if (socketsSV[i] != null){
@@ -519,7 +525,7 @@ public class GroupMessengerActivity extends Activity {
                         socketsSV[i] = null;
                     }
 
-                    socket_each.setSoTimeout(0);
+//                    socket_each.setSoTimeout(0);
 
 
                 } catch (SocketTimeoutException e){
