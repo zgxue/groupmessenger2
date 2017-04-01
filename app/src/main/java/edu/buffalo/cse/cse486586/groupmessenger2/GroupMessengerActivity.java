@@ -356,18 +356,17 @@ public class GroupMessengerActivity extends Activity {
 
             }
             private boolean BDeliver1(String mid, String jProc, String msg){
-//            siProposedSeq += 1;
-                siProposedSeq.incrementAndGet();
+                int siSeqNow = siProposedSeq.incrementAndGet();
 
-                String toSendStr = mid + " " + siProposedSeq.toString();
+                String toSendStr = mid + " " + (Integer.valueOf(siSeqNow)).toString();
 
 //            Socket toSendSocket = machineSockets[getIndexbyStrPort(jProc)];
                 try{
                     OutputStream outputStream = socket_accepted.getOutputStream();
                     outputStream.write(toSendStr.getBytes());
                     outputStream.flush();
-//                    totalQueue.add(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
-                    addToTotalQueue(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+//                    addToTotalQueue(new TOQueueItem(mid, jProc, siProposedSeq.toString(), selfMachineName, false, msg));
+                    addToTotalQueue(new TOQueueItem(mid, jProc, (Integer.valueOf(siSeqNow)).toString(), selfMachineName, false, msg));
 
                     organizeTotalQueue();
                     return true;
@@ -388,11 +387,24 @@ public class GroupMessengerActivity extends Activity {
 
                 try{
                     Integer skInteger = Integer.parseInt(sk);
-//                siProposedSeq = (siProposedSeq > skInteger)? siProposedSeq : skInteger;
 
-                    if (skInteger > siProposedSeq.get()){
-                        siProposedSeq.set(skInteger);
+
+                    Boolean isDone = false;
+                    while (!isDone){
+                        int oldValue = siProposedSeq.get();
+                        if (skInteger > oldValue){
+                            if(siProposedSeq.compareAndSet(oldValue, skInteger)){
+                                isDone = true;
+                            }
+                        }else{
+                            isDone = true;
+                        }
                     }
+//                    if (skInteger > siProposedSeq.get()){
+//                        siProposedSeq.set(skInteger);
+//                    }
+
+
                     for (int i = 0; i < totalQueue.size(); i++) {
                         TOQueueItem item = totalQueue.get(i);
                         if (item.mID.equals(mid) && item.jProcSentMsg.equals(iProc)) {
@@ -449,6 +461,7 @@ public class GroupMessengerActivity extends Activity {
         }
         private synchronized void addToTotalQueue(TOQueueItem item){
             totalQueue.add(item);
+            organizeTotalQueue();
         }
 
         public synchronized void cleanUp(String machineCrashed){
@@ -476,9 +489,7 @@ public class GroupMessengerActivity extends Activity {
         @Override
         protected Void doInBackground(String... msgs) {
 
-//            counter += 1;
-            counter.incrementAndGet();
-            socketsSV = BMulticastMSG(counter.toString(), selfMachineName, msgs[0]);
+            socketsSV = BMulticastMSG(String.valueOf(counter.incrementAndGet()), selfMachineName, msgs[0]);
             logPrint("just finish BmulticastMSG");
 
             //recieve information regarding all 5or4 proposed sequences
@@ -562,7 +573,7 @@ public class GroupMessengerActivity extends Activity {
             }
             logPrint("[Client] just finish picking up the max sequence proposed");
 
-            BMulticastAgreedSeq(counter.toString(), selfMachineName, skmax.toString(), kProc);
+            BMulticastAgreedSeq(String.valueOf(counter.get()), selfMachineName, skmax.toString(), kProc);
             logPrint("[Client] just finish multicast the agreed seq");
 
             // close all sockets
